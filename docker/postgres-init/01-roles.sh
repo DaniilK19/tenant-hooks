@@ -26,8 +26,10 @@ CREATE ROLE hooks_worker LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS
 -- Cannot log in. Will own the narrow SECURITY DEFINER claim functions.
 CREATE ROLE hooks_claimer NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
 
--- Lets migrations hand function ownership to hooks_claimer.
-GRANT hooks_claimer TO hooks_owner;
+-- Lets migrations hand function ownership to hooks_claimer. INHERIT FALSE is essential:
+-- a policy written TO hooks_claimer also applies to any role that inherits it, so an
+-- inheriting hooks_owner would pick up the claimer's USING (true) and see every tenant.
+GRANT hooks_claimer TO hooks_owner WITH INHERIT FALSE, SET TRUE;
 
 ALTER DATABASE :"db" OWNER TO hooks_owner;
 REVOKE ALL ON DATABASE :"db" FROM PUBLIC;

@@ -188,7 +188,7 @@ class EventAttempt(Base):
             name="fk_event_attempts_event",
         ),
         CheckConstraint(
-            "outcome IS NULL OR outcome IN ('succeeded', 'failed', 'lease_lost')",
+            "outcome IS NULL OR outcome IN ('succeeded', 'failed', 'skipped', 'lease_lost')",
             name="ck_event_attempts_outcome",
         ),
         Index("ix_event_attempts_event", "tenant_id", "event_id"),

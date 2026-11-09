@@ -1,14 +1,16 @@
 """The configuration that RLS depends on. If any of this drifts, isolation is gone."""
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import ProgrammingError
 
 from tenant_hooks.db import tenant_tx
 from tenant_hooks.models import Base
-from tests.conftest import TwoTenants
+from tests.conftest import REPO_ROOT, DatabaseUrls, TwoTenants
 
 ROLES = ["hooks_owner", "hooks_api", "hooks_worker", "hooks_claimer"]
 TENANT_TABLES = sorted(Base.metadata.tables)
@@ -93,6 +95,46 @@ def test_tenant_tx_commits_are_visible(api_engine: Engine, tenants: TwoTenants) 
         session.execute(text("UPDATE events SET last_error = 'seen'"))
     with tenant_tx(api_engine, tenants.a.id) as session:
         assert session.execute(text("SELECT last_error FROM events")).scalar_one() == "seen"
+
+
+def test_owner_does_not_inherit_the_claimer_policies(owner_engine: Engine) -> None:
+    """A policy TO hooks_claimer applies to anyone inheriting it, so the owner must not."""
+    with owner_engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT m.inherit_option, m.set_option
+                FROM pg_auth_members m
+                WHERE m.roleid = 'hooks_claimer'::regrole AND m.member = 'hooks_owner'::regrole
+                """
+            )
+        ).one()
+    assert row.inherit_option is False
+    assert row.set_option is True
+
+
+def test_only_the_claimer_is_covered_by_unrestricted_policies(owner_engine: Engine) -> None:
+    with owner_engine.connect() as connection:
+        roles = connection.execute(
+            text(
+                """
+                SELECT DISTINCT r.rolname
+                FROM pg_policy p
+                CROSS JOIN LATERAL unnest(p.polroles) AS grantee(oid)
+                JOIN pg_roles r ON r.oid = grantee.oid
+                WHERE pg_get_expr(p.polqual, p.polrelid) = 'true'
+                """
+            )
+        ).scalars()
+        assert list(roles) == ["hooks_claimer"]
+
+
+def test_migrations_are_reversible(database_urls: DatabaseUrls) -> None:
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    try:
+        command.downgrade(config, "base")
+    finally:
+        command.upgrade(config, "head")
 
 
 def test_models_match_migrations(owner_engine: Engine) -> None:
