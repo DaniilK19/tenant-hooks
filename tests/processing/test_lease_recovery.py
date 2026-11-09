@@ -10,6 +10,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
+from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, select
 
 from tenant_hooks.db import tenant_tx
@@ -24,8 +25,10 @@ from tests.processing import crash_worker
 from tests.processing.file_effects import FileEffects
 from tests.processing.helpers import (
     Recorder,
+    add_api_key,
     add_event,
     add_events,
+    bearer,
     bind_handler,
     expire_leases,
     get_attempts,
@@ -226,6 +229,25 @@ def test_event_that_keeps_killing_workers_is_dead_lettered(
     assert event.last_error == EXPIRED_MESSAGE
     assert event.lease_token is None
     assert event.completed_at is not None
+
+
+def test_event_dead_lettered_by_lease_expiry_can_be_replayed(
+    client: TestClient, owner_engine: Engine, worker_engine: Engine, tenant: SigningTenant
+) -> None:
+    bind_handler(owner_engine, tenant.id)
+    event_id = add_event(owner_engine, tenant.id, max_attempts=1)
+    claim_events(worker_engine, 1, 60, "dead-worker")
+    expire_leases(owner_engine, tenant.id)
+    assert reclaim_expired_leases(worker_engine, 10) == 1
+    token = add_api_key(owner_engine, tenant.id)
+
+    response = client.post(f"/v1/events/{event_id}/replay", headers=bearer(token))
+
+    assert response.status_code == 202
+    handler = Recorder()
+    assert Worker(worker_engine, registry_with(handler)).run_once() == 1
+    assert len(handler.calls) == 1
+    assert get_event(owner_engine, tenant.id, event_id).status == "succeeded"
 
 
 @pytest.mark.parametrize("zombie_fails", [False, True], ids=["late_success", "late_failure"])
