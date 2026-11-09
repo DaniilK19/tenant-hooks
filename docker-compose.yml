@@ -39,6 +39,8 @@ services:
       dockerfile: docker/Dockerfile
     environment:
       HOOKS_DATABASE_URL: postgresql+psycopg://hooks_api:${HOOKS_API_PASSWORD:-local-dev-only-api}@postgres:5432/${POSTGRES_DB:-tenant_hooks}
+      # Base64 of the text "local-dev-only-fake-key-32bytes!".
+      HOOKS_SECRET_KEY: ${HOOKS_SECRET_KEY:-bG9jYWwtZGV2LW9ubHktZmFrZS1rZXktMzJieXRlcyE=}
     ports:
       - "8000:8000"
     depends_on:

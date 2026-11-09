@@ -30,6 +30,8 @@ from tenant_hooks.models import (
     Tenant,
 )
 
+pytest_plugins = ("tests.http_fixtures",)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DB_NAME = "tenant_hooks"
 PROVIDER = "acme"
@@ -173,9 +175,13 @@ def seed_tenant(engine: Engine, name: str) -> SeededTenant:
     return SeededTenant(tenant_id, event_id, lease_token)
 
 
+def truncate_all(engine: Engine) -> None:
+    # TRUNCATE is not filtered by RLS, which is why only the owner is granted it.
+    with engine.begin() as connection:
+        connection.execute(text("TRUNCATE tenants CASCADE"))
+
+
 @pytest.fixture
 def tenants(owner_engine: Engine) -> Iterator[TwoTenants]:
     yield TwoTenants(seed_tenant(owner_engine, "tenant-a"), seed_tenant(owner_engine, "tenant-b"))
-    # TRUNCATE is not filtered by RLS, which is why only the owner is granted it.
-    with owner_engine.begin() as connection:
-        connection.execute(text("TRUNCATE tenants CASCADE"))
+    truncate_all(owner_engine)
