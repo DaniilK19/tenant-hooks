@@ -52,5 +52,16 @@ services:
       timeout: 3s
       retries: 10
 
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["python", "-m", "tenant_hooks.worker"]
+    environment:
+      HOOKS_DATABASE_URL: postgresql+psycopg://hooks_worker:${HOOKS_WORKER_PASSWORD:-local-dev-only-worker}@postgres:5432/${POSTGRES_DB:-tenant_hooks}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   pgdata:
