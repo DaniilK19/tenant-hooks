@@ -63,5 +63,20 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  # Operator commands, run on demand: docker compose run --rm admin --help
+  admin:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    entrypoint: ["python", "-m", "tenant_hooks.cli"]
+    command: ["--help"]
+    environment:
+      HOOKS_DATABASE_URL: postgresql+psycopg://hooks_owner:${HOOKS_OWNER_PASSWORD:-local-dev-only-owner}@postgres:5432/${POSTGRES_DB:-tenant_hooks}
+      HOOKS_SECRET_KEY: ${HOOKS_SECRET_KEY:-bG9jYWwtZGV2LW9ubHktZmFrZS1rZXktMzJieXRlcyE=}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
 volumes:
   pgdata:
