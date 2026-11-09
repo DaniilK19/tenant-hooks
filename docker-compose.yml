@@ -1,0 +1,54 @@
+# Every default below is a fake value for local use. See .env.example to override.
+name: tenant-hooks
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-dev-only-superuser}
+      POSTGRES_DB: ${POSTGRES_DB:-tenant_hooks}
+      HOOKS_OWNER_PASSWORD: ${HOOKS_OWNER_PASSWORD:-local-dev-only-owner}
+      HOOKS_API_PASSWORD: ${HOOKS_API_PASSWORD:-local-dev-only-api}
+      HOOKS_WORKER_PASSWORD: ${HOOKS_WORKER_PASSWORD:-local-dev-only-worker}
+    volumes:
+      - ./docker/postgres-init:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # -h forces TCP. The image's temporary init server only listens on the
+      # Unix socket, so this stays unhealthy until roles have been created.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      HOOKS_MIGRATION_DATABASE_URL: postgresql+psycopg://hooks_owner:${HOOKS_OWNER_PASSWORD:-local-dev-only-owner}@postgres:5432/${POSTGRES_DB:-tenant_hooks}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      HOOKS_DATABASE_URL: postgresql+psycopg://hooks_api:${HOOKS_API_PASSWORD:-local-dev-only-api}@postgres:5432/${POSTGRES_DB:-tenant_hooks}
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
